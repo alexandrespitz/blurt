@@ -1,0 +1,9 @@
+Blurt.xcodeproj/
+Parakeet.xcodeproj/
+Generated/
+build/
+dist/
+Fixtures/*.wav
+Fixtures/*.aiff
+.DS_Store
+*.xcuserstate

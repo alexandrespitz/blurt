@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blurt — free, local dictation for your Mac</title>
+<meta name="description" content="Blurt it out. Your Mac types it. Free, open-source, local-only dictation for macOS — 25 languages, crash-proof, no cloud, no subscription.">
+<style>
+  :root{
+    --bg:#0d1117; --bg2:#12171f; --card:#161d27; --line:#242d3a;
+    --text:#e8edf4; --muted:#9aa7b8; --accent:#7ee081; --accent2:#4fc06a;
+    --warn:#e0b654; --mono:ui-monospace,'SF Mono',Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:880px;margin:0 auto;padding:0 24px}
+  nav{display:flex;justify-content:space-between;align-items:center;padding:22px 0}
+  .brand{font-weight:800;font-size:20px;letter-spacing:-.02em;color:var(--text)}
+  .brand span{color:var(--accent)}
+  nav .links a{color:var(--muted);margin-left:22px;font-size:14.5px}
+  header{padding:64px 0 56px;text-align:center}
+  .bird{font-size:56px;line-height:1}
+  h1{font-size:clamp(38px,7vw,64px);font-weight:800;letter-spacing:-.03em;margin:18px 0 10px}
+  h1 em{font-style:normal;color:var(--accent)}
+  .tag{font-size:clamp(17px,2.6vw,21px);color:var(--muted);max-width:620px;margin:0 auto}
+  .cta{margin:34px 0 10px}
+  .btn{display:inline-block;background:var(--accent);color:#08110a;font-weight:700;
+    padding:14px 28px;border-radius:12px;font-size:17px}
+  .btn:hover{background:var(--accent2);text-decoration:none}
+  .sub{font-size:13.5px;color:var(--muted);margin-top:12px}
+  .sub code{font-family:var(--mono);font-size:12.5px;background:var(--card);
+    padding:2px 7px;border-radius:6px;border:1px solid var(--line)}
+  section{padding:56px 0;border-top:1px solid var(--line)}
+  h2{font-size:26px;letter-spacing:-.02em;margin-bottom:18px}
+  .story{background:var(--bg2);border:1px solid var(--line);border-radius:14px;
+    padding:28px;font-size:17px}
+  .story p+p{margin-top:14px}
+  .story .rule{color:var(--accent);font-weight:650}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin-top:8px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px}
+  .card h3{font-size:15.5px;margin-bottom:7px}
+  .card p{font-size:14px;color:var(--muted)}
+  .check{font-family:var(--mono);font-size:13px;background:#0a0e13;border:1px solid var(--line);
+    border-radius:10px;padding:14px 16px;overflow-x:auto;white-space:nowrap;margin-top:14px;color:#c7d4e2}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin-top:10px}
+  th,td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:left}
+  th{color:var(--muted);font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.05em}
+  td:first-child{color:var(--muted)}
+  .yes{color:var(--accent);font-weight:650}
+  .tablewrap{overflow-x:auto}
+  .note{font-size:13px;color:var(--muted);margin-top:12px}
+  ol.install{margin:8px 0 0 20px;font-size:15.5px}
+  ol.install li{margin-bottom:10px}
+  ol.install b{color:var(--warn)}
+  footer{padding:44px 0 60px;border-top:1px solid var(--line);
+    font-size:13.5px;color:var(--muted);text-align:center}
+  footer p+p{margin-top:8px}
+  @media (max-width:600px){nav .links a{margin-left:14px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav>
+  <div class="brand">Blurt<span>.</span></div>
+  <div class="links">
+    <a href="https://github.com/alexandrespitz/blurt">GitHub</a>
+    <a href="https://github.com/alexandrespitz/blurt/releases">Releases</a>
+    <a href="https://github.com/alexandrespitz/blurt#trust-honestly-stated">Privacy</a>
+  </div>
+</nav>
+
+<header>
+  <div class="bird">🦜</div>
+  <h1>Blurt it out.<br>Your Mac <em>types it</em>.</h1>
+  <p class="tag">Free, open-source dictation for macOS. Hold a key, talk, let go —
+  the text appears where your cursor is. 25 languages, detected automatically.
+  Nothing ever leaves your machine.</p>
+  <div class="cta">
+    <a class="btn" href="https://github.com/alexandrespitz/blurt/releases/latest/download/Blurt.dmg">⇩&nbsp;&nbsp;Download for macOS</a>
+  </div>
+  <p class="sub">Apple Silicon · macOS 14+ · no account, no subscription, no cloud ·
+  or <code>git clone</code> and <a href="https://github.com/alexandrespitz/blurt#install">build it yourself</a></p>
+</header>
+
+<section>
+  <h2>Born from a lost dictation</h2>
+  <div class="story">
+    <p>A commercial dictation app froze mid-thought one evening and took a long,
+    careful dictation with it — the audio had only ever lived in that app's
+    memory. Blurt was built the same night around one rule:</p>
+    <p class="rule">Your voice hits the disk while you speak. A crash, a
+    force-quit, a frozen app — none of them can lose what you said.</p>
+    <p>Kill Blurt mid-sentence, relaunch it, and the recording is found,
+    transcribed, and waiting in your history. There is a test in the repo that
+    murders the process mid-write and proves the words come back.</p>
+  </div>
+</section>
+
+<section>
+  <h2>What it does</h2>
+  <div class="grid">
+    <div class="card"><h3>🔒 Local, verifiably</h3><p>Speech recognition runs on
+      your Neural Engine (NVIDIA Parakeet v3 via CoreML). No telemetry, no
+      accounts. The only network request ever made is the one-time model
+      download.</p></div>
+    <div class="card"><h3>💥 Crash-proof</h3><p>Audio streams to disk as you
+      speak, through a write-ahead lifecycle. Relaunch converges to exactly one
+      transcript or one recoverable recording — never silent loss.</p></div>
+    <div class="card"><h3>🌍 25 languages, no switching</h3><p>Change language
+      mid-conversation; it just follows. English, French, German, Spanish,
+      Italian, Portuguese, Polish, Ukrainian and more.</p></div>
+    <div class="card"><h3>🧠 Learns your words — locally</h3><p>Fix the same
+      mishearing twice in your history and Blurt learns the rule, on your disk.
+      Add names and jargon it should know.</p></div>
+    <div class="card"><h3>⚡ Live preview</h3><p>Words trail your voice by under
+      a second while you talk; the final text comes from a clean full pass at
+      up to ~180× realtime.</p></div>
+    <div class="card"><h3>👀 Gaze Mode</h3><p>Hands-free: it listens, your
+      pauses cut the sentences, and each one lands in the text box you were
+      looking at. Pairs with any eye tracker that steers the pointer.</p></div>
+  </div>
+  <div class="check">$ lsof -i -p $(pgrep -x Blurt)&nbsp;&nbsp;&nbsp;# while dictating — no sockets. Ever.</div>
+</section>
+
+<section>
+  <h2>Against the apps you'd otherwise pay for</h2>
+  <div class="tablewrap">
+  <table>
+    <tr><th></th><th>Blurt</th><th>SuperWhisper</th><th>Wispr Flow</th><th>Willow</th></tr>
+    <tr><td>Price</td><td class="yes">Free forever</td><td>Freemium</td><td>Subscription</td><td>Subscription</td></tr>
+    <tr><td>Source code</td><td class="yes">Open (MIT)</td><td>Closed</td><td>Closed</td><td>Closed</td></tr>
+    <tr><td>Audio leaves your Mac</td><td class="yes">Never</td><td>No</td><td>Yes</td><td>Yes</td></tr>
+    <tr><td>Survives a crash mid-dictation</td><td class="yes">By design</td><td>No</td><td>No</td><td>No</td></tr>
+    <tr><td>Fork it and make it yours</td><td class="yes">Please do</td><td>—</td><td>—</td><td>—</td></tr>
+  </table>
+  </div>
+  <p class="note">Written August 2026; check current facts. Where the closed apps
+  are genuinely ahead — cloud AI formatting, more languages, notarized
+  installers — the <a href="https://github.com/alexandrespitz/blurt#compared-to-the-apps-you-would-otherwise-use">README says so honestly</a>.</p>
+</section>
+
+<section>
+  <h2>Install in 60 seconds</h2>
+  <ol class="install">
+    <li><a href="https://github.com/alexandrespitz/blurt/releases/latest/download/Blurt.dmg">Download Blurt.dmg</a>, drag it to Applications, open it.</li>
+    <li>macOS will balk once — this is a community build, not an Apple-notarized
+      one. <b>System Settings → Privacy &amp; Security → Open Anyway.</b></li>
+    <li>Grant the microphone and Accessibility when asked, let the model
+      download once (~1&nbsp;GB) — then it's fully offline. Tap
+      <b>Right&nbsp;Option</b> and start talking.</li>
+  </ol>
+  <p class="note">Suspicious of unsigned downloads? Good instinct — that's why
+  the <a href="https://github.com/alexandrespitz/blurt">whole thing is source
+  you can read</a>, each release publishes its SHA-256, and
+  <code style="font-family:var(--mono)">make install</code> builds it from
+  scratch in five minutes.</p>
+</section>
+
+<footer>
+  <p><b>Blurt</b> · MIT licensed · built by
+    <a href="https://github.com/alexandrespitz">Alexandre Spitz</a> with Claude</p>
+  <p>Speech model: NVIDIA <a href="https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3">Parakeet&nbsp;v3</a>
+    · CoreML runtime: <a href="https://github.com/FluidInference/FluidAudio">FluidAudio</a>
+    · The app was named Parakeet until the model asked for its name back.</p>
+</footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install xcodegen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Unit tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Blurt.xcodeproj \
+            -scheme Blurt \
+            -configuration Debug \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath build \
+            | grep -E "Test Suite|Executed|error:|warning: Tests" || exit 1
+      - name: Release build compiles
+        run: |
+          xcodebuild build \
+            -project Blurt.xcodeproj \
+            -scheme Blurt \
+            -configuration Release \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath build \
+            -quiet
