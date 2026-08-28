@@ -26,6 +26,16 @@ final class RecordingController {
     private var activeJob: RecordingJob?
     /// Jobs we started in this process — only these may paste.
     private var liveJobIDs = Set<UUID>()
+    /// Jobs currently queued or running in the transcription worker. Makes
+    /// enqueueing idempotent: a second Retry while the first is still running
+    /// is a no-op, not a duplicate.
+    private var queuedJobIDs = Set<UUID>()
+    /// Jobs the user explicitly deleted while work was in flight. A late
+    /// result for a tombstoned id is discarded and its remnants removed —
+    /// deletion must stay deleted. An *unexpectedly* missing manifest is NOT
+    /// treated as deletion; that could be an I/O hiccup, and losing work over
+    /// it would be worse.
+    private var tombstonedJobIDs = Set<UUID>()
     /// In Gaze Mode, the app chosen by looking — it overrides "whatever was
     /// frontmost when recording stopped" as the delivery destination.
     private var gazeTarget: DeliveryService.Target?
@@ -175,7 +185,13 @@ final class RecordingController {
         do {
             gazeWriter = try WavWriter(url: url)
         } catch {
+            // Silent ears would be worse than stopping: the user believes
+            // they are dictating. Stop listening and say why.
             Log.error("Gaze utterance could not open its file: \(error.localizedDescription)")
+            gazeListening = false
+            recorder.stop()
+            onGazeEvent?(.listeningStopped(
+                "Gaze Mode paused — a recording file could not be created"))
             return
         }
         job.state = .recording
@@ -219,6 +235,7 @@ final class RecordingController {
             try writer.append(samples)
         } catch {
             Log.error("Gaze utterance write failed: \(error.localizedDescription)")
+            gazeTruncated = true
             finishGazeUtterance()
             return
         }
@@ -228,6 +245,10 @@ final class RecordingController {
             writer.sync()
         }
     }
+
+    /// Set when the current gaze utterance had to stop early on a write
+    /// failure — carried into its manifest so the shortfall is visible.
+    private var gazeTruncated = false
 
     private func finishGazeUtterance() {
         guard var job = gazeJob, let writer = gazeWriter else { return }
@@ -251,8 +272,16 @@ final class RecordingController {
         let looked = gazeDeliveryProvider?()
         job.state = .finalized
         job.durationSeconds = duration
+        job.truncated = gazeTruncated
+        gazeTruncated = false
         job.frontAppBundleID = looked?.bundleID
         job.frontAppPID = looked?.pid
+        // No acquired target means no legitimate paste destination. Lock the
+        // job to clipboard/history so it can never fall through to pasting
+        // into whatever happens to be frontmost.
+        if looked?.input == nil && looked?.bundleID == nil {
+            job.deliveryMode = "copy"
+        }
         JobStore.save(job, in: AppPaths.inflight)
 
         liveJobIDs.insert(job.id)
@@ -263,8 +292,40 @@ final class RecordingController {
             gazeInserts[job.id] = input
         }
         onGazeEvent?(.utteranceEnded)
+        queuedJobIDs.insert(job.id)
         worker.enqueue(
             .init(id: job.id, url: JobStore.wavURL(for: job, in: AppPaths.inflight), source: .live))
+    }
+
+    /// The single door into the transcription queue. Idempotent per job id —
+    /// a second Retry while the first run is still in flight is a no-op — and
+    /// closed to jobs the user has deleted.
+    func enqueueTranscription(id: UUID, url: URL, source: RecordingJob.Source) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            guard !self.tombstonedJobIDs.contains(id),
+                  !self.queuedJobIDs.contains(id)
+            else { return }
+            self.queuedJobIDs.insert(id)
+            self.worker.enqueue(.init(id: id, url: url, source: source))
+        }
+    }
+
+    /// The user explicitly deleted this recording. The files go now; if a
+    /// transcription is still running, its late result will be discarded and
+    /// any remnants it writes removed — deletion stays deleted.
+    func deleteJob(id: UUID, in directory: URL) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.tombstonedJobIDs.insert(id)
+            self.liveJobIDs.remove(id)
+            self.gazeInserts.removeValue(forKey: id)
+            self.pendingInBox.removeValue(forKey: id)
+            var stub = RecordingJob(id: id)
+            stub.state = .finalized
+            JobStore.remove(stub, in: directory)
+            self.onPendingChanged?()
+        }
     }
 
     /// Used when quitting: finalize whatever is open so it can be recovered.
@@ -311,6 +372,7 @@ final class RecordingController {
 
         if discard {
             JobStore.remove(job, in: AppPaths.inflight)
+            liveJobIDs.remove(job.id)
             emit(.idle)
             return
         }
@@ -318,6 +380,7 @@ final class RecordingController {
         // A stray brush of the key is not a dictation.
         if outcome.duration < WavRecovery.minimumUsableSeconds {
             JobStore.remove(job, in: AppPaths.inflight)
+            liveJobIDs.remove(job.id)
             emit(.discarded(reason: "too short"))
             return
         }
@@ -340,6 +403,7 @@ final class RecordingController {
 
         guard enqueue else { return }
         emit(.transcribing)
+        queuedJobIDs.insert(job.id)
         worker.enqueue(.init(id: job.id, url: url, source: .live))
     }
 
@@ -365,7 +429,21 @@ final class RecordingController {
         result: Result<TranscriptionWorker.Output, Error>
     ) {
         let directory = workerJob.url.deletingLastPathComponent()
+        queuedJobIDs.remove(workerJob.id)
+
+        // The user deleted this while it was transcribing. Deleted stays
+        // deleted: drop the result and sweep any remnants.
+        if tombstonedJobIDs.remove(workerJob.id) != nil {
+            var stub = RecordingJob(id: workerJob.id)
+            stub.state = .finalized
+            JobStore.remove(stub, in: directory)
+            onPendingChanged?()
+            return
+        }
+
         let manifestURL = directory.appendingPathComponent("\(workerJob.id.uuidString).json")
+        // A missing manifest here is an I/O anomaly, not a deletion (deletion
+        // goes through the tombstone above) — reconstruct so the work is kept.
         var job = JobStore.load(manifestURL) ?? {
             var placeholder = RecordingJob(id: workerJob.id, source: workerJob.source)
             placeholder.state = .finalized
@@ -453,16 +531,33 @@ final class RecordingController {
             return
         }
 
+        // Order is deliberate and load-bearing: history must be durable
+        // BEFORE the transcript's other copy is scrubbed from the manifest and
+        // before the job advances — otherwise a failed write could leave the
+        // words nowhere. On failure the job stays at `.transcribed`, visibly
+        // retryable, with its transcript intact in the manifest.
         if Prefs.saveHistory {
-            history.upsert(
-                HistoryEntry(
-                    id: job.id,
-                    date: job.startedAt,
-                    text: finalText,
-                    duration: output.audioDuration,
-                    recovered: job.source == .recovered,
-                    confidence: output.confidence,
-                    rawText: finalText == output.text ? nil : output.text))
+            do {
+                try history.upsertDurably(
+                    HistoryEntry(
+                        id: job.id,
+                        date: job.startedAt,
+                        text: finalText,
+                        duration: output.audioDuration,
+                        recovered: job.source == .recovered,
+                        confidence: output.confidence,
+                        rawText: finalText == output.text ? nil : output.text))
+            } catch {
+                job.attemptCount += 1
+                job.lastError = "Could not save to history: \(error.localizedDescription)"
+                JobStore.save(job, in: directory)
+                liveJobIDs.remove(job.id)
+                gazeInserts.removeValue(forKey: job.id)
+                pendingInBox.removeValue(forKey: job.id)
+                emit(.failed("Transcribed, but history could not be saved — kept for retry"))
+                onPendingChanged?()
+                return
+            }
         }
 
         // Only a dictation this process actually recorded may type itself into
@@ -471,44 +566,57 @@ final class RecordingController {
         var pasted = false
         var note: String?
 
-        if isLive {
-            // In-box preview first: the words are already sitting in the box —
-            // finishing swaps them for the final transcript in place.
-            if let inBox = pendingInBox.removeValue(forKey: job.id),
-               inBox.finish(finalText)
-            {
-                gazeInserts.removeValue(forKey: job.id)
-                DeliveryService.copyOnly(text: finalText)
-                pasted = true
-            }
-            // Otherwise a gaze utterance goes into the exact box it was aimed
-            // at — via accessibility, which works even if your eyes (and
-            // focus) have moved on. Fall back to the normal paste path.
-            else if let input = gazeInserts.removeValue(forKey: job.id),
-               GazeTargetService.insert(text: finalText, into: input)
-            {
-                // Clipboard still gets the text, as everywhere else.
-                DeliveryService.copyOnly(text: finalText)
-                pasted = true
-            } else {
-                let intended = DeliveryService.Target(
-                    bundleID: job.frontAppBundleID, pid: job.frontAppPID, name: nil)
-                let result = DeliveryService.deliver(
-                    text: finalText,
-                    intendedTarget: intended,
-                    allowPaste: Prefs.autoPaste)
-                switch result {
-                case .pasted:
-                    pasted = true
-                case .copiedOnly(let reason):
-                    note = "Copied — \(reason)"
-                }
-            }
-        } else {
+        if !isLive {
             note = "Recovered — copied to history"
         }
+        // In-box preview first: it captured its box when the utterance BEGAN
+        // (our delivery semantics — text lands where you were looking when you
+        // started speaking), and its words are already sitting there; finishing
+        // swaps in the final transcript in place. The clipboard is deliberately
+        // NOT touched on direct insertion (that is insertion's point; the
+        // README promises it) unless opted in.
+        else if let inBox = pendingInBox.removeValue(forKey: job.id),
+            inBox.finish(finalText)
+        {
+            gazeInserts.removeValue(forKey: job.id)
+            if Prefs.copyAfterInsert { DeliveryService.copyOnly(text: finalText) }
+            pasted = true
+        }
+        else if job.deliveryMode == "copy" {
+            // Gaze utterance that never had a target: clipboard only, never a
+            // paste into whatever happens to be frontmost.
+            DeliveryService.copyOnly(text: finalText)
+            note = "Copied — no gaze target"
+        }
+        // Otherwise a gaze utterance goes into the exact box it was aimed
+        // at — via accessibility, which works even if your eyes (and focus)
+        // have moved on. Fall back to the normal paste path.
+        else if let input = gazeInserts.removeValue(forKey: job.id),
+            GazeTargetService.insert(text: finalText, into: input)
+        {
+            if Prefs.copyAfterInsert { DeliveryService.copyOnly(text: finalText) }
+            pasted = true
+        } else {
+            let intended = DeliveryService.Target(
+                bundleID: job.frontAppBundleID, pid: job.frontAppPID, name: nil)
+            let result = DeliveryService.deliver(
+                text: finalText,
+                intendedTarget: intended,
+                allowPaste: Prefs.autoPaste)
+            switch result {
+            case .pasted:
+                pasted = true
+            case .copiedOnly(let reason):
+                note = "Copied — \(reason)"
+            }
+        }
 
+        // The transcript now lives in history (or was delivered); the manifest
+        // keeps identity and lifecycle only. This is what makes Clear History
+        // and history-off actually mean what they say.
         job.state = .committed
+        job.text = nil
+        job.confidence = nil
         JobStore.save(job, in: directory)
         applyRetention(to: job, in: directory)
         liveJobIDs.remove(job.id)
@@ -528,7 +636,13 @@ final class RecordingController {
             JobStore.remove(job, in: directory)
         case .oneDay, .sevenDays:
             if directory != AppPaths.done {
-                JobStore.move(job, from: directory, to: AppPaths.done)
+                // The retention clock starts NOW, not at the recording's
+                // start: a recovered three-day-old dictation must still get
+                // its full keep window, not be collected minutes later.
+                var kept = job
+                kept.retainedAt = Date()
+                JobStore.save(kept, in: directory)
+                JobStore.move(kept, from: directory, to: AppPaths.done)
             }
         }
     }
@@ -545,7 +659,8 @@ final class RecordingController {
             }
             let cutoff = Date().addingTimeInterval(-window)
             var removed = 0
-            for job in JobStore.loadAll(in: AppPaths.done) where job.startedAt < cutoff {
+            for job in JobStore.loadAll(in: AppPaths.done)
+            where job.retentionReference < cutoff {
                 JobStore.remove(job, in: AppPaths.done)
                 removed += 1
             }
@@ -586,11 +701,23 @@ final class RecordingController {
     // MARK: - Retry from the dashboard
 
     func retry(jobID: UUID) {
-        queue.async { [weak self] in
-            guard let self else { return }
-            let url = AppPaths.inflight.appendingPathComponent("\(jobID.uuidString).wav")
-            guard FileManager.default.fileExists(atPath: url.path) else { return }
-            self.worker.enqueue(.init(id: jobID, url: url, source: .recovered))
+        let url = AppPaths.inflight.appendingPathComponent("\(jobID.uuidString).wav")
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        enqueueTranscription(id: jobID, url: url, source: .recovered)
+    }
+
+    /// Clear History's reach into retained recordings: strip transcripts from
+    /// committed manifests everywhere, keeping the audio and its retention
+    /// metadata. Pending (`.transcribed`) manifests are left alone — theirs is
+    /// the only copy of an undelivered transcript.
+    func redactCommittedManifests() {
+        queue.async {
+            for directory in [AppPaths.inflight, AppPaths.done] {
+                for job in JobStore.loadAll(in: directory)
+                where job.state == .committed {
+                    JobStore.redactTranscript(job, in: directory)
+                }
+            }
         }
     }
 

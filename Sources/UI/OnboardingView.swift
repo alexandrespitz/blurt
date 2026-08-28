@@ -186,7 +186,11 @@ struct OnboardingView: View {
             header(
                 "arrow.down.circle",
                 "Getting the speech model",
-                "About a gigabyte, once. After this Blurt works offline.")
+                "About a gigabyte, once, from Hugging Face. After this Blurt works offline.")
+            // The download starts here — when the user can see what it is —
+            // never silently at first launch.
+            Color.clear.frame(height: 0)
+                .onAppear { coordinator.beginModelDownload() }
 
             switch coordinator.modelState {
             case .ready:

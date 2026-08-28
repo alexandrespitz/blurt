@@ -36,6 +36,9 @@ enum Log {
         if !fm.fileExists(atPath: url.path) {
             guard AppPaths.ensure() else { return }
             fm.createFile(atPath: url.path, contents: data, attributes: [.posixPermissions: 0o600])
+            // The log carries app names and timings — never transcript text —
+            // but there is no reason for it to ride into backups either.
+            AppPaths.excludeFromBackup(url)
             return
         }
         if let handle = try? FileHandle(forWritingTo: url) {

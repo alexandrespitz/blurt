@@ -27,7 +27,10 @@ Then:
 - **Never ship an ad-hoc build.** Ad-hoc signatures change identity every
   build, so every update would silently reset users' permission grants — and
   worse, a stale grant *looks* enabled in System Settings while evaluating to
-  false. `Scripts/build.sh` fails loudly rather than fall back.
+  false. `Scripts/build.sh` falls back to ad-hoc for local development (so
+  forks build out of the box), but **`make dmg` refuses to package anything
+  without a certificate-pinned requirement** unless you explicitly set
+  `BLURT_ALLOW_ADHOC_DMG=1` — and that DMG must never be published.
 - The signing keychain must never be committed or shared; a leaked key would
   let someone else's binary inherit users' permission grants. Releasing from
   a new machine means running `make cert` there — that mints a *different*

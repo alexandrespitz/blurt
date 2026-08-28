@@ -9,6 +9,23 @@ cd "$(dirname "$0")/.."
 APP="dist/Blurt.app"
 [[ -d "$APP" ]] || { echo "Run Scripts/build.sh first — no $APP"; exit 1; }
 
+# Release integrity gate: a DMG must carry a certificate-pinned designated
+# requirement. An ad-hoc build gets a cdhash requirement instead, which resets
+# every user's permission grants on update AND leaves a stale, lying entry in
+# System Settings. Development can override explicitly; releases cannot ship
+# it by accident.
+if ! codesign -d -r- "$APP" 2>&1 | grep -q "certificate leaf"; then
+  if [[ "${BLURT_ALLOW_ADHOC_DMG:-}" == "1" ]]; then
+    echo "WARNING: packaging an ad-hoc build (BLURT_ALLOW_ADHOC_DMG=1)."
+    echo "         Never publish this DMG — grants reset on every update."
+  else
+    echo "ERROR: $APP is not signed with a certificate-pinned requirement."
+    echo "       Run 'make cert' once, then 'make build', and try again."
+    echo "       (Dev-only escape hatch: BLURT_ALLOW_ADHOC_DMG=1 make dmg)"
+    exit 1
+  fi
+fi
+
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist")
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT

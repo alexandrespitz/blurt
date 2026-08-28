@@ -49,40 +49,71 @@ final class HistoryStore {
         return all.filter { $0.text.localizedCaseInsensitiveContains(q) }
     }
 
+    /// Best-effort upsert for UI edits: a failed write is logged, and memory
+    /// keeps the newer value so the user's edit is not visibly swallowed.
     @discardableResult
     func upsert(_ entry: HistoryEntry) -> [HistoryEntry] {
-        lock.lock()
-        if let idx = entries.firstIndex(where: { $0.id == entry.id }) {
-            entries[idx] = entry
-        } else {
-            entries.insert(entry, at: 0)
-            if entries.count > Self.maxEntries {
-                entries.removeLast(entries.count - Self.maxEntries)
-            }
+        let snapshot = mutate { entries in
+            Self.apply(entry, to: &entries)
         }
-        entries.sort { $0.date > $1.date }
-        let snapshot = entries
-        lock.unlock()
-        persist(snapshot)
+        try? persistOrdered(snapshot)
         onChange?(snapshot)
         return snapshot
     }
 
+    /// The commit pipeline's upsert: returns only once the snapshot is on
+    /// disk, throws when it is not. The caller must not scrub the transcript's
+    /// other copies or advance the job past `.transcribed` on failure —
+    /// otherwise the UI would show history that never survived a relaunch.
+    func upsertDurably(_ entry: HistoryEntry) throws {
+        let snapshot = mutate { entries in
+            Self.apply(entry, to: &entries)
+        }
+        do {
+            try persistOrdered(snapshot)
+        } catch {
+            // Roll memory back so the UI never shows an entry that has no
+            // durable backing; the job stays retryable instead.
+            let rolledBack = mutate { entries in
+                entries.removeAll { $0.id == entry.id }
+            }
+            onChange?(rolledBack)
+            throw error
+        }
+        onChange?(snapshot)
+    }
+
     func delete(id: UUID) {
-        lock.lock()
-        entries.removeAll { $0.id == id }
-        let snapshot = entries
-        lock.unlock()
-        persist(snapshot)
+        let snapshot = mutate { entries in
+            entries.removeAll { $0.id == id }
+        }
+        try? persistOrdered(snapshot)
         onChange?(snapshot)
     }
 
     func clear() {
+        let snapshot = mutate { entries in entries = [] }
+        try? persistOrdered(snapshot)
+        onChange?(snapshot)
+    }
+
+    private static func apply(_ entry: HistoryEntry, to entries: inout [HistoryEntry]) {
+        if let idx = entries.firstIndex(where: { $0.id == entry.id }) {
+            entries[idx] = entry
+        } else {
+            entries.insert(entry, at: 0)
+            if entries.count > maxEntries {
+                entries.removeLast(entries.count - maxEntries)
+            }
+        }
+        entries.sort { $0.date > $1.date }
+    }
+
+    private func mutate(_ change: (inout [HistoryEntry]) -> Void) -> [HistoryEntry] {
         lock.lock()
-        entries = []
-        lock.unlock()
-        persist([])
-        onChange?([])
+        defer { lock.unlock() }
+        change(&entries)
+        return entries
     }
 
     func contains(id: UUID) -> Bool {
@@ -110,23 +141,37 @@ final class HistoryStore {
         }
     }
 
-    private func persist(_ snapshot: [HistoryEntry]) {
+    /// Writes go through one serial queue, so concurrent mutations from the
+    /// UI and the transcription pipeline can never land on disk out of order —
+    /// the last write is always the newest snapshot.
+    private let persistQueue = DispatchQueue(label: "com.alexspitz.blurt.history.persist")
+
+    private func persistOrdered(_ snapshot: [HistoryEntry]) throws {
+        var failure: Error?
+        persistQueue.sync {
+            do {
+                try write(snapshot)
+            } catch {
+                failure = error
+                Log.error("Could not save history: \(error.localizedDescription)")
+            }
+        }
+        if let failure { throw failure }
+    }
+
+    private func write(_ snapshot: [HistoryEntry]) throws {
         AppPaths.ensure()
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted]
-        do {
-            let data = try encoder.encode(snapshot)
-            let tmp = url.appendingPathExtension("tmp")
-            try data.write(to: tmp, options: [.atomic])
-            if FileManager.default.fileExists(atPath: url.path) {
-                _ = try FileManager.default.replaceItemAt(url, withItemAt: tmp)
-            } else {
-                try FileManager.default.moveItem(at: tmp, to: url)
-            }
-            AppPaths.protectFile(url)
-        } catch {
-            Log.error("Could not save history: \(error.localizedDescription)")
+        let data = try encoder.encode(snapshot)
+        let tmp = url.appendingPathExtension("tmp")
+        try data.write(to: tmp, options: [.atomic])
+        if FileManager.default.fileExists(atPath: url.path) {
+            _ = try FileManager.default.replaceItemAt(url, withItemAt: tmp)
+        } else {
+            try FileManager.default.moveItem(at: tmp, to: url)
         }
+        AppPaths.protectFile(url)
     }
 }

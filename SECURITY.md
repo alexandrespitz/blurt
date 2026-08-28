@@ -10,7 +10,7 @@ plainly, and the code that backs every claim is short enough to read.
 
 | Capability | What it is used for | Where to verify |
 |---|---|---|
-| Microphone | Captured only while you dictate; in Gaze Mode, continuously while the mode is on (menu bar shows an eye) | `Sources/Services/RecorderEngine.swift` |
+| Microphone | Captured only while you dictate; in Gaze Mode, continuously while the mode is on (menu bar shows an eye). Gaze Mode never survives a relaunch — continuous listening always requires turning it on again | `Sources/Services/RecorderEngine.swift` |
 | Keyboard event tap | Matches your dictation key; every other event passes through untouched. Required for a global hotkey | `Sources/Services/EventTapService.swift` |
 | Accessibility (paste / insert) | Synthesizes ⌘V, or inserts text into the box you aimed at in Gaze Mode | `Sources/Services/DeliveryService.swift`, `GazeTargetService.swift` |
 
@@ -19,10 +19,18 @@ is the one-time model download from Hugging Face, performed by the
 [FluidAudio](https://github.com/FluidInference/FluidAudio) dependency (pinned
 by exact version). Verify at runtime: `lsof -i -p $(pgrep -x Blurt)`.
 
-**Storage:** everything lives in `~/Library/Application Support/Blurt`
-(directories 0700, files 0600, recordings excluded from Time Machine). Audio
-is deleted after transcription per your retention setting. Nothing is
-obfuscated — history and learned rules are plain JSON you can open.
+**Storage — the complete inventory:** transcripts, learned vocabulary,
+recordings and a small state log live in `~/Library/Application Support/Blurt`
+(directories 0700, files 0600; recordings and the log excluded from Time
+Machine). The log carries app names and timings, never transcript text. The
+downloaded speech model lives in `~/Library/Application Support/FluidAudio`.
+Settings live in the `com.alexspitz.blurt` preferences domain. Audio is
+deleted after transcription per your retention setting; "Clear History" also
+strips transcript copies from retained recording manifests, and "Delete All
+Blurt Data" in the dashboard removes everything above except the model.
+Nothing is obfuscated — history and learned rules are plain JSON you can
+open. To uninstall completely: delete the app, both Application Support
+folders, and run `defaults delete com.alexspitz.blurt`.
 
 **Deliberate non-goals and honest weaknesses**
 

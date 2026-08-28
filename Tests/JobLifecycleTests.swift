@@ -79,6 +79,114 @@ final class JobLifecycleTests: XCTestCase {
         XCTAssertEqual(JobStore.loadAll(in: destination).count, 1)
     }
 
+    // MARK: - Corrupt manifests must never hide audio
+
+    func testAuditReportsCorruptManifestsInsteadOfHidingThem() throws {
+        var good = RecordingJob()
+        good.state = .finalized
+        JobStore.save(good, in: directory)
+
+        // A WAV beside an unreadable sidecar: the old enumeration dropped the
+        // JSON silently AND refused to call the WAV an orphan — invisible.
+        let hidden = RecordingJob()
+        try Data(repeating: 7, count: 128).write(
+            to: JobStore.wavURL(for: hidden, in: directory))
+        try Data("{ definitely not json".utf8).write(
+            to: JobStore.manifestURL(for: hidden, in: directory))
+
+        let audit = JobStore.audit(in: directory)
+        XCTAssertEqual(audit.jobs.map(\.id), [good.id])
+        XCTAssertEqual(
+            audit.corruptManifests.map(\.lastPathComponent),
+            [hidden.manifestFilename],
+            "an undecodable sidecar must be reported, never skipped")
+        XCTAssertTrue(
+            JobStore.orphanedWavs(in: directory).isEmpty,
+            "documented trap: the WAV is not an orphan while the bad JSON "
+                + "exists — recovery must quarantine the JSON to free it")
+    }
+
+    // MARK: - Redaction: Clear History's reach into retained recordings
+
+    func testRedactTranscriptStripsTextKeepsEverythingElse() throws {
+        var job = RecordingJob()
+        job.state = .committed
+        job.text = "a transcript that should not outlive Clear History"
+        job.confidence = 0.9
+        job.durationSeconds = 4.2
+        job.retainedAt = Date(timeIntervalSince1970: 5000)
+        JobStore.save(job, in: directory)
+
+        JobStore.redactTranscript(job, in: directory)
+
+        let reloaded = JobStore.load(JobStore.manifestURL(for: job, in: directory))
+        XCTAssertNotNil(reloaded)
+        XCTAssertNil(reloaded?.text, "the transcript must be gone")
+        XCTAssertNil(reloaded?.confidence)
+        XCTAssertEqual(reloaded?.id, job.id)
+        XCTAssertEqual(reloaded?.state, .committed)
+        XCTAssertEqual(reloaded?.durationSeconds, 4.2)
+        XCTAssertEqual(
+            reloaded?.retainedAt, Date(timeIntervalSince1970: 5000),
+            "retention metadata survives so GC still works")
+    }
+
+    // MARK: - Retention clock
+
+    func testRetentionClockStartsAtKeepTimeNotRecordingTime() {
+        var recovered = RecordingJob(startedAt: Date(timeIntervalSinceNow: -3 * 24 * 3600))
+        XCTAssertEqual(
+            recovered.retentionReference, recovered.startedAt,
+            "without a keep timestamp the start time is all there is")
+
+        recovered.retainedAt = Date()
+        let window: TimeInterval = 24 * 3600
+        let cutoff = Date().addingTimeInterval(-window)
+        XCTAssertFalse(
+            recovered.retentionReference < cutoff,
+            "a recording recovered from a 3-day-old crash gets its full "
+                + "keep window, not deletion at the next sweep")
+    }
+
+    // MARK: - Manifest schema compatibility
+
+    func testOldManifestsWithoutNewFieldsStillDecode() throws {
+        let json = """
+            {"id":"\(UUID().uuidString)","state":"committed",
+            "startedAt":"2026-08-11T18:00:00Z","source":"live",
+            "attemptCount":0,"truncated":false}
+            """
+        let url = directory.appendingPathComponent("legacy.json")
+        try Data(json.utf8).write(to: url)
+        let job = JobStore.load(url)
+        XCTAssertNotNil(job, "pre-1.3.1 manifests must keep decoding")
+        XCTAssertNil(job?.deliveryMode)
+        XCTAssertNil(job?.retainedAt)
+    }
+
+    // MARK: - Durable history writes
+
+    func testUpsertDurablyThrowsAndRollsBackWhenDiskRefuses() throws {
+        let sealed = directory.appendingPathComponent("sealed", isDirectory: true)
+        try FileManager.default.createDirectory(at: sealed, withIntermediateDirectories: true)
+        let store = HistoryStore(url: sealed.appendingPathComponent("history.json"))
+        // Read-only directory: the write must fail...
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o500], ofItemAtPath: sealed.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o700], ofItemAtPath: sealed.path)
+        }
+
+        let entry = HistoryEntry(
+            id: UUID(), date: Date(), text: "must not pretend to be saved",
+            duration: 1, recovered: false, confidence: nil)
+        XCTAssertThrowsError(try store.upsertDurably(entry))
+        // ...and memory must roll back, so the UI never shows history that
+        // would vanish at the next launch.
+        XCTAssertFalse(store.contains(id: entry.id))
+    }
+
     // MARK: - History idempotency
 
     func testHistoryUpsertNeverDuplicates() throws {

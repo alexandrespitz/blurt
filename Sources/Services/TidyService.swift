@@ -63,16 +63,23 @@ enum TidyService {
                     """)
 
                 do {
-                    let task = Task {
-                        try await session.respond(to: text).content
+                    // A true race: whichever finishes first wins, and the
+                    // delivery chain proceeds either way. Awaiting a cancelled
+                    // task's value would block forever if the model ignores
+                    // cancellation — the original sin of the previous version.
+                    let cleaned: String? = try await withThrowingTaskGroup(
+                        of: String?.self
+                    ) { group in
+                        group.addTask { try await session.respond(to: text).content }
+                        group.addTask {
+                            try await Task.sleep(nanoseconds: 12_000_000_000)
+                            return nil  // timeout wins
+                        }
+                        let first = try await group.next() ?? nil
+                        group.cancelAll()
+                        return first
                     }
-                    // The model occasionally stalls; dictation must not.
-                    let timeout = Task {
-                        try await Task.sleep(nanoseconds: 12_000_000_000)
-                        task.cancel()
-                    }
-                    let cleaned = try await task.value
-                    timeout.cancel()
+                    guard let cleaned else { return nil }
 
                     let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard TidyGate.sane(original: text, cleaned: trimmed) else { return nil }

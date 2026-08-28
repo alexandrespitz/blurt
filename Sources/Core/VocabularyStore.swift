@@ -190,11 +190,28 @@ final class VocabularyStore {
         }
     }
 
+    /// Everything the store knows, gone — part of "Delete All Blurt Data".
+    func clearAll() {
+        lock.lock()
+        payload = Payload()
+        lock.unlock()
+        persistAndNotify()
+    }
+
+    /// Writes are serialized so concurrent mutations (UI adds, pipeline hit
+    /// counting, history-edit learning) can never persist out of order.
+    private let persistQueue = DispatchQueue(label: "com.alexspitz.blurt.vocabulary.persist")
+
     private func persistAndNotify() {
         lock.lock()
         let snapshot = payload
         lock.unlock()
 
+        persistQueue.sync { self.write(snapshot) }
+        onChange?()
+    }
+
+    private func write(_ snapshot: Payload) {
         AppPaths.ensure()
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -212,6 +229,5 @@ final class VocabularyStore {
         } catch {
             Log.error("Could not save vocabulary: \(error.localizedDescription)")
         }
-        onChange?()
     }
 }

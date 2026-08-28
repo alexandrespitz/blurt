@@ -1,3 +1,8 @@
+# Recipes run under bash with pipefail so a failing xcodebuild can never be
+# masked by the grep/tail that prettify its output.
+SHELL := /bin/bash
+.SHELLFLAGS := -o pipefail -ec
+
 .PHONY: gen build run test cli fixtures selftest dmg icon clean cert install
 
 APP := dist/Blurt.app

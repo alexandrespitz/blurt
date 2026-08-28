@@ -330,6 +330,8 @@ struct GeneralTab: View {
 
     // MARK: - Settings
 
+    @State private var confirmingDeleteAll = false
+
     private var settingsCard: some View {
         SectionCard(title: "Behaviour") {
             Toggle(isOn: $coordinator.autoPaste) {
@@ -373,6 +375,19 @@ struct GeneralTab: View {
 
             Toggle(isOn: $coordinator.playSounds) {
                 Text("Play a quiet sound when recording starts and stops")
+            }
+
+            Toggle(isOn: $coordinator.copyAfterInsert) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Also copy Gaze Mode insertions to the clipboard")
+                    Text(
+                        "Off by default: text inserted straight into the box "
+                        + "you looked at skips the clipboard entirely — "
+                        + "nothing for Universal Clipboard or clipboard "
+                        + "managers to see.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
             }
 
             if coordinator.tidyAvailable {
@@ -429,6 +444,26 @@ struct GeneralTab: View {
             HStack {
                 Button("Show Data Folder") { coordinator.revealDataFolder() }
                 Spacer()
+                Button("Delete All Blurt Data…", role: .destructive) {
+                    confirmingDeleteAll = true
+                }
+            }
+            .confirmationDialog(
+                "Delete everything Blurt has stored?",
+                isPresented: $confirmingDeleteAll
+            ) {
+                Button("Delete All Data", role: .destructive) {
+                    coordinator.deleteAllData()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(
+                    "Removes all transcripts, learned vocabulary, kept "
+                    + "recordings and settings, and restarts setup. Files you "
+                    + "exported and anything already on the clipboard are not "
+                    + "affected. The downloaded speech model stays (it "
+                    + "contains nothing of yours) — remove it by deleting "
+                    + "~/Library/Application Support/FluidAudio.")
             }
         }
     }

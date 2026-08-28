@@ -36,6 +36,23 @@ final class RecoveryManager {
         AppPaths.ensure()
         var report = Report()
 
+        // A manifest that fails to decode must not make its WAV invisible —
+        // neither a job nor an orphan. Park the broken sidecar in quarantine;
+        // the WAV it was hiding becomes an orphan and is adopted below.
+        let audit = JobStore.audit(in: AppPaths.inflight)
+        for corrupt in audit.corruptManifests {
+            let parked = AppPaths.quarantine
+                .appendingPathComponent(corrupt.lastPathComponent + ".corrupt")
+            try? FileManager.default.removeItem(at: parked)
+            do {
+                try FileManager.default.moveItem(at: corrupt, to: parked)
+                Log.error("Quarantined an unreadable manifest: \(corrupt.lastPathComponent)")
+                report.quarantined.append(corrupt.lastPathComponent)
+            } catch {
+                Log.error("Could not quarantine \(corrupt.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+
         adoptOrphanedWavs()
 
         for job in JobStore.loadAll(in: AppPaths.inflight) {
@@ -63,7 +80,7 @@ final class RecoveryManager {
                 recovered.state = .finalized
                 recovered.durationSeconds = probe.duration
                 JobStore.save(recovered, in: AppPaths.inflight)
-                worker.enqueue(.init(id: recovered.id, url: wav, source: .recovered))
+                controller.enqueueTranscription(id: recovered.id, url: wav, source: .recovered)
                 report.requeued.append(recovered.id)
                 Log.info(
                     "Recovering \(String(format: "%.1f", probe.duration))s of audio from a previous session")

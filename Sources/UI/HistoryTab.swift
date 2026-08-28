@@ -177,7 +177,11 @@ struct HistoryTab: View {
             Button("Delete All", role: .destructive) { coordinator.clearHistory() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This cannot be undone.")
+            Text(
+                "Deletes every saved transcript, including the copies kept "
+                + "with retained recordings. Kept audio, learned vocabulary, "
+                + "exported files and the clipboard are not affected. This "
+                + "cannot be undone.")
         }
         .sheet(item: $editing) { entry in
             editSheet(entry)

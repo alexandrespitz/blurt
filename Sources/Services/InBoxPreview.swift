@@ -18,6 +18,9 @@ final class InBoxPreview {
     private var location: Int
     private var length = 0
     private var broken = false
+    /// What we last wrote — checked before every replacement so a user who
+    /// typed into the box meanwhile never has their words clobbered.
+    private var lastWritten = ""
 
     private init(input: AXUIElement, location: Int) {
         self.input = input
@@ -80,9 +83,23 @@ final class InBoxPreview {
         guard AXUIElementSetAttributeValue(
             input, kAXSelectedTextRangeAttribute as CFString, rangeValue) == .success
         else { return false }
+
+        // The range we are about to overwrite must still contain exactly what
+        // we wrote last time. If it does not — the user typed in the box, the
+        // app reflowed it — stop touching their text.
+        if length > 0 {
+            var selectedRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(
+                input, kAXSelectedTextAttribute as CFString, &selectedRef) == .success,
+                let selected = selectedRef as? String,
+                selected == lastWritten
+            else { return false }
+        }
+
         guard AXUIElementSetAttributeValue(
             input, kAXSelectedTextAttribute as CFString, text as CFString) == .success
         else { return false }
+        lastWritten = text
         // AX ranges count UTF-16 units, like NSString.
         length = (text as NSString).length
 

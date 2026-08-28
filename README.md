@@ -3,11 +3,11 @@
 **Blurt it out. Your Mac types it. Nothing leaves the machine.**
 
 Blurt is free, open-source, local-only dictation for macOS. Hold a key, talk,
-let go — the text lands wherever your cursor is, in any app, in any of 25
+let go — the text lands wherever your cursor is, in most Mac apps, in any of 25
 languages, detected automatically mid-sentence. Speech recognition runs on your
 Mac's Neural Engine with NVIDIA's Parakeet v3 model. There is no account, no
-subscription, no cloud, and no telemetry — the only network request Blurt ever
-makes is downloading the model once.
+subscription, no cloud, and no telemetry. Blurt's only network use is the
+one-time model download; after that it runs fully offline.
 
 **[Download for macOS](https://github.com/alexandrespitz/blurt/releases/latest/download/Blurt.dmg)** · Apple Silicon, macOS 14+ · MIT licensed
 
@@ -20,8 +20,9 @@ careful dictation with it. The audio had only ever existed in that app's
 memory. Blurt was built the same night around one non-negotiable rule:
 
 > **Your voice hits the disk while you speak.** A crash, a force-quit, a
-> frozen app — none of them can lose what you said. The next launch finds the
-> recording, transcribes it, and puts it in your history.
+> frozen app — the recording survives, and the next launch finds it,
+> transcribes it, and puts it in your history. The most an app crash can cost
+> is the last fraction of a second (a power cut, the last two).
 
 Everything else grew from using it daily. It is a personal tool that turned
 out to be good enough to share, and it is MIT-licensed because dictation
@@ -30,7 +31,7 @@ let it listen to you.
 
 ## What makes it different
 
-- **Crash-proof by construction.** Audio streams to disk as you speak;
+- **Crash-safe by construction.** Audio streams to disk as you speak;
   every recording moves through a write-ahead lifecycle
   (`recording → finalized → transcribed → committed`). Kill the app at any
   point — relaunch converges to exactly one history entry or one visible,
@@ -60,11 +61,12 @@ let it listen to you.
 
 ## Compared to the apps you would otherwise use
 
-Honest table, written August 2026 — check current facts before deciding.
+Honest table, last verified 26 August 2026 — these products change; check
+their sites before deciding.
 
 | | **Blurt** | SuperWhisper | Wispr Flow | Willow Voice | Apple Dictation |
 |---|---|---|---|---|---|
-| Price | **Free forever** | Freemium + paid | Subscription | Subscription | Free |
+| Price | **Free (MIT)** | Freemium + paid | Free tier + paid | Free tier + paid | Free |
 | Source | **Open (MIT)** | Closed | Closed | Closed | Closed |
 | Audio leaves your Mac | **Never** | No (local models) | Yes (cloud STT) | Yes (cloud) | Sometimes |
 | Survives a crash mid-dictation | **Yes, by design** | No | No | No | No |
@@ -72,7 +74,7 @@ Honest table, written August 2026 — check current facts before deciding.
 | Auto language switching | **Yes (25)** | Model-dependent | Yes | Limited | Manual |
 | AI cleanup | On-device only | Cloud + local | Cloud | Cloud | No |
 | Gaze / hands-free targeting | **Yes** | No | No | No | No |
-| Windows / iOS | No | iOS | Yes | No | Built-in |
+| Windows / iOS | No | iOS | Yes | Windows (2026) | Built-in |
 
 Where the closed apps are genuinely ahead: cloud LLM formatting "modes"
 (email tone, prompt rewriting), broader language sets via cloud, polish, and
@@ -129,8 +131,8 @@ with its permissions — all of it checkable in this repo:
   local JSON you can open, export, or clear.
 - **The clipboard caveat:** transcripts go on the normal macOS clipboard, so
   Universal Clipboard syncs them to your other Apple devices and clipboard
-  managers can read them. That is inherent to pasting; you can rely on
-  accessibility insertion in Gaze Mode instead.
+  managers can read them. That is inherent to pasting. Gaze Mode's direct
+  insertions skip the clipboard entirely by default.
 - Grants are pinned to the signing certificate, so app updates do not reset
   your permissions.
 
@@ -159,7 +161,7 @@ Sources/Services   one macOS subsystem each: event tap (own thread),
 Sources/App        the coordinator wiring it together
 Sources/UI         menu bar, floating pill, dashboard, onboarding
 Sources/CLI        blurt-cli: headless testing and fault injection
-Tests              54 unit tests, including the crash-boundary invariants
+Tests              59 unit tests, including the crash-boundary and privacy invariants
 ```
 
 Three design choices worth knowing before you dig in: the keyboard tap runs

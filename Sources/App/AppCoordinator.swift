@@ -49,15 +49,25 @@ final class AppCoordinator: ObservableObject {
         }
     }
     @Published var didCompleteOnboarding: Bool {
-        didSet { Prefs.didCompleteOnboarding = didCompleteOnboarding }
+        didSet {
+            Prefs.didCompleteOnboarding = didCompleteOnboarding
+            // Skipping setup still consents to the model download — the app
+            // is unusable without it and the user chose to proceed.
+            if didCompleteOnboarding { beginModelDownload() }
+        }
     }
+
+    @Published var copyAfterInsert: Bool { didSet { Prefs.copyAfterInsert = copyAfterInsert } }
 
     @Published var livePreview: Bool { didSet { Prefs.livePreview = livePreview } }
     @Published var playSounds: Bool { didSet { Prefs.playSounds = playSounds } }
     @Published var tidyEnabled: Bool { didSet { Prefs.tidyEnabled = tidyEnabled } }
+    /// Deliberately NOT persisted: Gaze Mode holds the microphone open, and a
+    /// setting that silently resumes continuous listening at the next launch
+    /// or login is not a setting a privacy-first app should have. Every
+    /// session starts with it off; double-tap or the menu turns it on.
     @Published var gazeMode: Bool {
         didSet {
-            Prefs.gazeMode = gazeMode
             guard gazeMode != oldValue else { return }
             if gazeMode { startGazeSession() } else { stopGazeSession() }
         }
@@ -111,7 +121,8 @@ final class AppCoordinator: ObservableObject {
         livePreview = Prefs.livePreview
         playSounds = Prefs.playSounds
         tidyEnabled = Prefs.tidyEnabled
-        gazeMode = Prefs.gazeMode
+        copyAfterInsert = Prefs.copyAfterInsert
+        gazeMode = false  // session-only, never resumed from a previous run
         inputDeviceUID = Prefs.inputDeviceUID
         languageHint = Prefs.languageHint
         permissions = permissionsService.snapshot()
@@ -139,10 +150,12 @@ final class AppCoordinator: ObservableObject {
             Task { @MainActor in self?.controller.collectGarbage() }
         }
 
-        Task { [weak self] in
-            guard let self else { return }
-            await self.worker.prepare()
-            await MainActor.run { self.runRecovery() }
+        // The ~1 GB model download is the app's only network activity, and it
+        // does not start until the user has been shown what it is: onboarding
+        // triggers it from its download step (or by finishing/skipping setup).
+        // Returning users have already consented.
+        if didCompleteOnboarding {
+            beginModelDownload()
         }
 
         // One-shot verification hook: `defaults write com.alexspitz.blurt
@@ -500,6 +513,21 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
+    private var modelDownloadStarted = false
+
+    /// Starts the one-time model download (and recovery once the model is
+    /// up). Idempotent; called from onboarding's download step, from setup
+    /// completion, and at launch for users who already onboarded.
+    func beginModelDownload() {
+        guard !modelDownloadStarted else { return }
+        modelDownloadStarted = true
+        Task { [weak self] in
+            guard let self else { return }
+            await self.worker.prepare()
+            await MainActor.run { self.runRecovery() }
+        }
+    }
+
     func retryModel() {
         Task { [weak self] in
             guard let self else { return }
@@ -514,20 +542,28 @@ final class AppCoordinator: ObservableObject {
     }
 
     func discard(job: RecordingJob) {
-        JobStore.remove(job, in: AppPaths.inflight)
+        // Through the controller, so an in-flight transcription of this job
+        // is tombstoned — deleted must stay deleted even if a result lands
+        // seconds later.
+        controller.deleteJob(id: job.id, in: AppPaths.inflight)
         refreshPending()
     }
 
     func transcribeQuarantined(_ url: URL) {
         WavRecovery.repair(url)
         let id = UUID(uuidString: url.deletingPathExtension().lastPathComponent) ?? UUID()
-        worker.enqueue(.init(id: id, url: url, source: .recovered))
+        controller.enqueueTranscription(id: id, url: url, source: .recovered)
     }
 
     func deleteQuarantined(_ url: URL) {
-        try? FileManager.default.removeItem(at: url)
-        let manifest = url.deletingPathExtension().appendingPathExtension("json")
-        try? FileManager.default.removeItem(at: manifest)
+        let id = UUID(uuidString: url.deletingPathExtension().lastPathComponent)
+        if let id {
+            controller.deleteJob(id: id, in: url.deletingLastPathComponent())
+        } else {
+            try? FileManager.default.removeItem(at: url)
+            let manifest = url.deletingPathExtension().appendingPathExtension("json")
+            try? FileManager.default.removeItem(at: manifest)
+        }
         refreshPending()
     }
 
@@ -537,7 +573,42 @@ final class AppCoordinator: ObservableObject {
     }
 
     func deleteHistory(id: UUID) { historyStore.delete(id: id) }
-    func clearHistory() { historyStore.clear() }
+    /// Clear History means clear: the visible list AND the transcript
+    /// copies kept inside committed recording manifests. The audio itself and
+    /// the learning data stay (they have their own controls); exported files
+    /// and the clipboard are outside anyone's reach.
+    func clearHistory() {
+        historyStore.clear()
+        controller.redactCommittedManifests()
+    }
+
+    /// Factory reset: history, learned vocabulary, recordings, quarantine,
+    /// log and settings. The downloaded speech model is left in place (it
+    /// contains nothing of yours); the dialog tells the user how to remove it.
+    func deleteAllData() {
+        gazeMode = false
+        controller.finalizeForShutdown()
+        historyStore.clear()
+        vocabularyStore.clearAll()
+        try? FileManager.default.removeItem(at: AppPaths.root)
+        AppPaths.ensure()
+        if let bundleID = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: bundleID)
+        }
+        Prefs.registerDefaults()
+        hotkey = Prefs.hotkey
+        autoPaste = Prefs.autoPaste
+        saveHistory = Prefs.saveHistory
+        retention = Prefs.retention
+        livePreview = Prefs.livePreview
+        playSounds = Prefs.playSounds
+        tidyEnabled = Prefs.tidyEnabled
+        copyAfterInsert = Prefs.copyAfterInsert
+        inputDeviceUID = nil
+        languageHint = nil
+        didCompleteOnboarding = false
+        refreshPending()
+    }
     func revealDataFolder() { AppPaths.revealInFinder() }
 
     /// A hand edit in the History tab — the learning loop's food. The stored
@@ -602,7 +673,16 @@ final class AppCoordinator: ObservableObject {
             lines.append(entry.text)
             lines.append("")
         }
-        try? lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+        do {
+            try lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+            // Owner-only, matching the rest of the app's files. Deliberately
+            // NOT excluded from backups: an export the user chose to make is
+            // the user's file, not ours to hide from their Time Machine.
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o600], ofItemAtPath: url.path)
+        } catch {
+            Log.error("Export failed: \(error.localizedDescription)")
+        }
     }
 
     func requestMicrophone() {

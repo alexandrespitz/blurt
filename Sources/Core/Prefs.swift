@@ -42,7 +42,7 @@ enum Prefs {
         static let inputDeviceUID = "inputDeviceUID"
         static let languageHint = "languageHint"
         static let tidyEnabled = "tidyEnabled"
-        static let gazeMode = "gazeMode"
+        static let copyAfterInsert = "copyAfterInsert"
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -118,10 +118,11 @@ enum Prefs {
         set { defaults.set(newValue, forKey: Key.tidyEnabled) }
     }
 
-    /// Gaze Mode: the dictation target is whatever is under the pointer when
-    /// recording starts — no click needed.
-    static var gazeMode: Bool {
-        get { defaults.bool(forKey: Key.gazeMode) }
-        set { defaults.set(newValue, forKey: Key.gazeMode) }
+    /// Whether direct gaze insertions should also land on the clipboard.
+    /// Off by default: the point of insertion is that the words go only
+    /// where you aimed them.
+    static var copyAfterInsert: Bool {
+        get { defaults.bool(forKey: Key.copyAfterInsert) }
+        set { defaults.set(newValue, forKey: Key.copyAfterInsert) }
     }
 }

@@ -41,6 +41,16 @@ struct RecordingJob: Codable, Equatable {
     /// Set when the writer had to stop early (disk full, buffer overflow).
     /// The audio up to that point is still good.
     var truncated: Bool
+    /// How this job's transcript may be delivered. nil = the normal path
+    /// (paste with guards). "copy" = clipboard/history only — used for gaze
+    /// utterances that never acquired a target, so they can never fall through
+    /// to pasting into whatever happens to be frontmost.
+    var deliveryMode: String?
+    /// When the recording entered its retention window (the move to `done/`).
+    /// Recovery can finish days after `startedAt`; the retention clock must
+    /// start here, or a just-recovered recording would be collected minutes
+    /// later. Optional so older manifests still decode.
+    var retainedAt: Date?
 
     init(id: UUID = UUID(), source: Source = .live, startedAt: Date = Date()) {
         self.id = id
@@ -54,6 +64,12 @@ struct RecordingJob: Codable, Equatable {
         self.attemptCount = 0
         self.truncated = false
     }
+
+    /// The moment the retention window starts counting from: the move into
+    /// the keep folder when known, else the recording's start. Recovery can
+    /// finish days after `startedAt` — a just-recovered recording gets its
+    /// full window.
+    var retentionReference: Date { retainedAt ?? startedAt }
 
     var wavFilename: String { "\(id.uuidString).wav" }
     var manifestFilename: String { "\(id.uuidString).json" }
@@ -104,12 +120,48 @@ enum JobStore {
 
     /// Every job sidecar in a directory, oldest first.
     static func loadAll(in directory: URL) -> [RecordingJob] {
+        audit(in: directory).jobs
+    }
+
+    struct Audit {
+        var jobs: [RecordingJob] = []
+        /// Manifests that exist but do not decode. These must never be
+        /// silently skipped: a corrupt sidecar would otherwise make its WAV
+        /// invisible — not a job, yet not an orphan either.
+        var corruptManifests: [URL] = []
+    }
+
+    /// The honest enumeration: decodable jobs oldest-first, plus every
+    /// manifest that failed to decode so the caller can quarantine it and
+    /// rescue the audio beside it.
+    static func audit(in directory: URL) -> Audit {
         let fm = FileManager.default
-        guard let names = try? fm.contentsOfDirectory(atPath: directory.path) else { return [] }
-        return names
-            .filter { $0.hasSuffix(".json") }
-            .compactMap { load(directory.appendingPathComponent($0)) }
-            .sorted { $0.startedAt < $1.startedAt }
+        guard let names = try? fm.contentsOfDirectory(atPath: directory.path) else {
+            return Audit()
+        }
+        var result = Audit()
+        for name in names where name.hasSuffix(".json") {
+            let url = directory.appendingPathComponent(name)
+            if let job = load(url) {
+                result.jobs.append(job)
+            } else {
+                result.corruptManifests.append(url)
+            }
+        }
+        result.jobs.sort { $0.startedAt < $1.startedAt }
+        return result
+    }
+
+    /// Removes the transcript from a committed manifest, keeping identity,
+    /// lifecycle state and retention metadata intact — Clear History's reach
+    /// into retained recordings without deleting the audio the user asked to
+    /// keep.
+    static func redactTranscript(_ job: RecordingJob, in directory: URL) {
+        guard job.text != nil || job.confidence != nil else { return }
+        var redacted = job
+        redacted.text = nil
+        redacted.confidence = nil
+        save(redacted, in: directory)
     }
 
     /// WAV files with no sidecar at all — from a crash so early the manifest
