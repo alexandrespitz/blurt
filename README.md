@@ -91,7 +91,8 @@ are yours, and the tool that hears them should be inspectable.**
    Privacy & Security**, scroll down, click **Open Anyway**, open again.
 3. Onboarding asks for **Microphone** (to hear you) and **Accessibility**
    (to see your dictation key and paste for you), then downloads the model
-   (~1 GB, once). After that it works fully offline.
+   (about 480 MB, once, verified against hashes pinned in this repo). After
+   that it works fully offline.
 
 Verify your download against the SHA-256 checksum published with each
 [release](https://github.com/alexandrespitz/blurt/releases):

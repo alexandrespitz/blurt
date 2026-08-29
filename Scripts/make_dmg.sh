@@ -52,7 +52,7 @@ than an Apple-notarized one:
 First run
 ---------
 Blurt asks for two permissions and downloads its speech model (about a
-gigabyte, once). After that it works with no network at all.
+about 480 MB, once). After that it works with no network at all.
 
   • Microphone    — to hear you.
   • Accessibility — to notice your dictation key and to paste for you.

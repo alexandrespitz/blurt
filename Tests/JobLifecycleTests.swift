@@ -187,6 +187,70 @@ final class JobLifecycleTests: XCTestCase {
         XCTAssertFalse(store.contains(id: entry.id))
     }
 
+    // MARK: - Model integrity
+
+    func testModelIntegrityDetectsTamperingAndAbsence() throws {
+        let model = directory.appendingPathComponent("model", isDirectory: true)
+        let inner = model.appendingPathComponent("Decoder.mlmodelc", isDirectory: true)
+        try FileManager.default.createDirectory(at: inner, withIntermediateDirectories: true)
+
+        let file = inner.appendingPathComponent("weight.bin")
+        let contents = Data("pretend these are weights".utf8)
+        try contents.write(to: file)
+
+        let realHash = ModelIntegrity.sha256(of: file)
+        XCTAssertNotNil(realHash)
+        XCTAssertEqual(realHash?.count, 64, "SHA-256 renders as 64 hex characters")
+
+        // A file that is not there at all is reported as missing, not silently
+        // treated as fine.
+        let absent = ModelIntegrity.verifyAgainst(
+            ["Decoder.mlmodelc/nothing.bin": realHash!], modelDirectory: model)
+        XCTAssertEqual(absent, .missing(["Decoder.mlmodelc/nothing.bin"]))
+
+        // Matching hash: verified.
+        let expected = ["Decoder.mlmodelc/weight.bin": realHash!]
+        XCTAssertEqual(
+            ModelIntegrity.verifyAgainst(expected, modelDirectory: model), .verified)
+
+        // One byte different: refused.
+        try (contents + Data([0x21])).write(to: file)
+        XCTAssertEqual(
+            ModelIntegrity.verifyAgainst(expected, modelDirectory: model),
+            .mismatch(["Decoder.mlmodelc/weight.bin"]),
+            "changed weights must never be loaded silently")
+    }
+
+    func testModelDirectoryResolvesEitherLayout() throws {
+        let base = directory.appendingPathComponent("cache", isDirectory: true)
+        let nested = base.appendingPathComponent("parakeet-tdt-0.6b-v3", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: nested.appendingPathComponent("Decoder.mlmodelc"),
+            withIntermediateDirectories: true)
+        XCTAssertEqual(
+            ModelIntegrity.resolveModelDirectory(base).lastPathComponent,
+            "parakeet-tdt-0.6b-v3",
+            "the SDK may hand back the parent directory")
+        XCTAssertEqual(
+            ModelIntegrity.resolveModelDirectory(nested).lastPathComponent,
+            "parakeet-tdt-0.6b-v3")
+    }
+
+    func testPinnedManifestLooksSane() {
+        XCTAssertGreaterThan(
+            ModelIntegrity.expected.count, 10,
+            "the pinned manifest should cover the whole model")
+        XCTAssertTrue(
+            ModelIntegrity.expected.keys.contains { $0.hasSuffix("weight.bin") },
+            "the weights themselves must be pinned")
+        XCTAssertFalse(
+            ModelIntegrity.expected.keys.contains { $0.contains("analytics/") },
+            "Core ML's own bookkeeping must stay unpinned")
+        XCTAssertTrue(
+            ModelIntegrity.expected.values.allSatisfy { $0.count == 64 },
+            "every pin is a SHA-256")
+    }
+
     // MARK: - History idempotency
 
     func testHistoryUpsertNeverDuplicates() throws {

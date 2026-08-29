@@ -15,6 +15,8 @@ final class TranscriptionWorker {
     enum ModelState: Equatable {
         case notReady
         case downloading(fraction: Double, detail: String)
+        /// Checking the downloaded weights against this build's pinned hashes.
+        case verifying
         case loading
         case ready
         case failed(String)
@@ -92,11 +94,36 @@ final class TranscriptionWorker {
         setState(cached ? .loading : .downloading(fraction: 0, detail: "Contacting Hugging Face"))
 
         do {
-            let models = try await AsrModels.downloadAndLoad(
+            // Download and load are deliberately separate so the weights can
+            // be checked against the hashes this build was tested with,
+            // BEFORE Core ML is asked to run them.
+            let directory = try await AsrModels.download(
                 version: .v3,
                 progressHandler: { [weak self] progress in
                     self?.report(progress)
                 })
+
+            setState(.verifying)
+            let verdict = ModelIntegrity.verify(modelDirectory: directory)
+            switch verdict {
+            case .verified:
+                Log.info("Speech model verified against \(ModelIntegrity.expected.count) pinned hashes")
+            case .mismatch(let files), .missing(let files):
+                Log.error(
+                    "Model integrity check failed: \(files.prefix(3).joined(separator: ", "))"
+                        + (files.count > 3 ? " and \(files.count - 3) more" : ""))
+                if Prefs.allowUnverifiedModel {
+                    Log.error("Loading anyway — allowUnverifiedModel is set")
+                } else {
+                    setState(.failed(
+                        verdict.explanation
+                            + " Update Blurt, or delete "
+                            + "~/Library/Application Support/FluidAudio to download it again."))
+                    return
+                }
+            }
+
+            let models = try await AsrModels.load(from: directory, version: .v3)
 
             setState(.loading)
 

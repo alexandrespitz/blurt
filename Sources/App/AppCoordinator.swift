@@ -150,7 +150,7 @@ final class AppCoordinator: ObservableObject {
             Task { @MainActor in self?.controller.collectGarbage() }
         }
 
-        // The ~1 GB model download is the app's only network activity, and it
+        // The ~480 MB model download is the app's only network activity, and it
         // does not start until the user has been shown what it is: onboarding
         // triggers it from its download step (or by finishing/skipping setup).
         // Returning users have already consented.
@@ -718,7 +718,7 @@ final class AppCoordinator: ObservableObject {
             return gazeListening ? "eye" : "eye.slash"
         }
         switch modelState {
-        case .downloading, .loading: return "arrow.down.circle"
+        case .downloading, .verifying, .loading: return "arrow.down.circle"
         case .failed: return "exclamationmark.triangle"
         case .notReady: return "mic.slash"
         case .ready: return permissions.readyToDictate ? "mic" : "mic.slash"
@@ -738,6 +738,7 @@ final class AppCoordinator: ObservableObject {
         case .notReady: return "Starting up…"
         case .downloading(let fraction, let detail):
             return "Downloading model — \(Int(fraction * 100))% (\(detail))"
+        case .verifying: return "Checking the model…"
         case .loading: return "Loading model…"
         case .ready: return "Ready — tap \(hotkey.displayName) to dictate"
         case .failed(let why): return "Model problem: \(why)"

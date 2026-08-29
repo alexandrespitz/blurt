@@ -43,6 +43,7 @@ enum Prefs {
         static let languageHint = "languageHint"
         static let tidyEnabled = "tidyEnabled"
         static let copyAfterInsert = "copyAfterInsert"
+        static let allowUnverifiedModel = "allowUnverifiedModel"
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -121,6 +122,13 @@ enum Prefs {
     /// Whether direct gaze insertions should also land on the clipboard.
     /// Off by default: the point of insertion is that the words go only
     /// where you aimed them.
+    /// Escape hatch for people who deliberately want to run a newer upstream
+    /// model than this build pins. Off by default, and there is no UI for it:
+    /// `defaults write com.alexspitz.blurt allowUnverifiedModel -bool true`.
+    static var allowUnverifiedModel: Bool {
+        defaults.bool(forKey: Key.allowUnverifiedModel)
+    }
+
     static var copyAfterInsert: Bool {
         get { defaults.bool(forKey: Key.copyAfterInsert) }
         set { defaults.set(newValue, forKey: Key.copyAfterInsert) }

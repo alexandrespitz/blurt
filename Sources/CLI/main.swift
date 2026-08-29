@@ -55,6 +55,8 @@ func makeWorker() async -> TranscriptionWorker {
         case .downloading(let fraction, let detail):
             let percent = Int(fraction * 100)
             print("  downloading \(percent)% — \(detail)")
+        case .verifying:
+            print("  verifying model against pinned hashes…")
         case .loading:
             print("  loading model…")
         case .ready:

@@ -186,7 +186,7 @@ struct OnboardingView: View {
             header(
                 "arrow.down.circle",
                 "Getting the speech model",
-                "About a gigabyte, once, from Hugging Face. After this Blurt works offline.")
+                "About 480 MB, once, from Hugging Face. After this Blurt works offline.")
             // The download starts here — when the user can see what it is —
             // never silently at first launch.
             Color.clear.frame(height: 0)
@@ -199,6 +199,12 @@ struct OnboardingView: View {
                 VStack(spacing: 8) {
                     ProgressView(value: fraction).frame(width: 320)
                     Text(detail).font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+            case .verifying:
+                VStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Checking the download…")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             case .loading:
                 VStack(spacing: 8) {

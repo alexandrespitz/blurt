@@ -3,7 +3,7 @@
 The whole release is four commands, but the order matters.
 
 ```bash
-make test                 # 54 unit tests
+make test                 # unit tests
 make selftest             # transcribes fixtures through the real model
 make dmg                  # builds, signs, packages dist/Blurt.dmg
 shasum -a 256 dist/Blurt.dmg
@@ -17,6 +17,22 @@ Then:
    `Blurt.dmg` (the stable name — the website's download button points at
    `releases/latest/download/Blurt.dmg`) and `Blurt-X.Y.Z.dmg`. Paste the
    SHA-256 into the notes.
+
+## When the upstream speech model changes
+
+Blurt refuses to load model files whose hashes do not match the ones this
+build was tested with, so adopting a new upstream model is a deliberate act:
+
+```bash
+rm -rf ~/Library/Application\ Support/FluidAudio   # fetch it fresh
+make selftest                                      # downloads + transcribes
+Scripts/pin_model_hashes.sh                        # re-pin the new hashes
+make selftest                                      # confirm, now verified
+```
+
+Commit the regenerated `Sources/Core/ModelIntegrity.swift` with a note about
+which upstream revision it came from, and treat it as a release-worthy change:
+until users update, their app will keep using the model it already trusts.
 
 ## Signing rules (the part that bites)
 

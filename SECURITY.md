@@ -15,9 +15,20 @@ plainly, and the code that backs every claim is short enough to read.
 | Accessibility (paste / insert) | Synthesizes ⌘V, or inserts text into the box you aimed at in Gaze Mode | `Sources/Services/DeliveryService.swift`, `GazeTargetService.swift` |
 
 **Network:** the app contains no networking code. The single network activity
-is the one-time model download from Hugging Face, performed by the
-[FluidAudio](https://github.com/FluidInference/FluidAudio) dependency (pinned
-by exact version). Verify at runtime: `lsof -i -p $(pgrep -x Blurt)`.
+is the one-time model download (about 480 MB) from Hugging Face, performed by
+the [FluidAudio](https://github.com/FluidInference/FluidAudio) dependency
+(pinned to an immutable commit). Verify at runtime:
+`lsof -i -p $(pgrep -x Blurt)`.
+
+**Model integrity:** the speech model is not shipped inside the app, and it is
+fetched from a mutable branch — so every file is checked against SHA-256
+hashes pinned in `Sources/Core/ModelIntegrity.swift` before Core ML is asked
+to load it. Weights that do not match the ones this build was tested against
+are refused, with an explanation. Regenerate them with
+`Scripts/pin_model_hashes.sh` only when deliberately adopting a new upstream
+model, and re-run `make selftest` before committing. Advanced users who want
+to run newer upstream weights can opt out explicitly:
+`defaults write com.alexspitz.blurt allowUnverifiedModel -bool true`.
 
 **Storage — the complete inventory:** transcripts, learned vocabulary,
 recordings and a small state log live in `~/Library/Application Support/Blurt`

@@ -13,7 +13,7 @@ make cert       # one-time: local signing identity (keeps permission grants
 make build      # dist/Blurt.app
 make test       # unit tests — fast, no model needed
 make fixtures   # text-to-speech test audio
-make selftest   # downloads the model (~1 GB, once) and transcribes fixtures
+make selftest   # downloads the model (~480 MB, once) and transcribes fixtures
 ```
 
 Requires Xcode 16+ and Apple Silicon. `Scripts/test_recovery.sh` runs the
